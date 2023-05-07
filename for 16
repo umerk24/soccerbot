@@ -1,0 +1,61 @@
+#include <avr/io.h>
+#include <avr/interrupt.h>
+#include <stdint.h>
+
+#define SS_PIN PB4
+
+volatile uint8_t received_byte = 0;
+
+void spi_init_master(void)
+{
+    /* Set MOSI, SCK, and SS as outputs */
+    DDRB |= (1 << DDB5) | (1 << DDB7) | (1 << DDB4);
+
+    /* Enable SPI, Master mode, set clock rate fosc/16 */
+    SPCR = (1 << SPE) | (1 << MSTR) | (1 << SPR0);
+
+    /* Enable SPI interrupt */
+    SPCR |= (1 << SPIE);
+}
+
+ISR(SPI_STC_vect)
+{
+    received_byte = SPDR;
+}
+
+void spi_send_byte(uint8_t data)
+{
+    /* Wait for previous transmission to complete */
+    while(!(SPSR & (1 << SPIF)));
+
+    /* Send data byte */
+    SPDR = data;
+}
+
+int main(void)
+{
+    spi_init_master();
+
+    /* Set SS pin as output */
+    DDRB |= (1 << SS_PIN);
+
+    while(1)
+    {
+        /* Select slave */
+        PORTB &= ~(1 << SS_PIN);
+
+        /* Send data to slave */
+        spi_send_byte(0x55);
+
+        /* Wait for response from slave */
+        while(!received_byte);
+
+        /* Deselect slave */
+        PORTB |= (1 << SS_PIN);
+
+        /* Reset received byte */
+        received_byte = 0;
+    }
+
+    return 0;
+}
