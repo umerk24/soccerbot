@@ -1,0 +1,189 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
+
+// Define the playing field dimensions and obstacles
+#define FIELD_WIDTH 3.0
+#define FIELD_LENGTH 4.0
+#define MAX_OBSTACLES 10
+float obstacles[MAX_OBSTACLES][2];
+int num_obstacles = 0;
+
+// Define the robot's motion model
+#define MAX_SPEED 0.5
+#define MAX_TURNING_ANGLE 45.0
+
+// Define the A* algorithm inputs and outputs
+struct node {
+    float pos[2];
+    float g;
+    float h;
+    float f;
+    struct node* parent;
+};
+float start[2] = {0.5, 0.5};
+float goal[2] = {3.5, 1.5};
+int obstacle_map[(int)(FIELD_WIDTH*10)][(int)(FIELD_LENGTH*10)] = {0};
+
+// Define the A* algorithm heuristic function
+float heuristic(float node[], float goal[]) {
+    return sqrt(pow(node[0]-goal[0], 2) + pow(node[1]-goal[1], 2));
+}
+
+// Define the A* algorithm search function
+struct node* A_star(float start[], float goal[], int obstacle_map[][int](FIELD_LENGTH*10)) {
+    // Initialize the open and closed lists
+    struct node* open_list = NULL;
+    struct node* closed_list = NULL;
+    // Add the starting node to the open list
+    struct node* start_node = (struct node*)malloc(sizeof(struct node));
+    start_node->pos[0] = start[0];
+    start_node->pos[1] = start[1];
+    start_node->g = 0;
+    start_node->h = heuristic(start, goal);
+    start_node->f = start_node->g + start_node->h;
+    start_node->parent = NULL;
+    open_list = start_node;
+    // Loop until the goal is reached or the open list is empty
+    while (open_list != NULL) {
+        // Get the node with the lowest f score from the open list
+        struct node* current_node = open_list;
+        struct node* temp_node = open_list->next;
+        while (temp_node != NULL) {
+            if (temp_node->f < current_node->f) {
+                current_node = temp_node;
+            }
+            temp_node = temp_node->next;
+        }
+        // If the current node is the goal, return the path
+        if (current_node->pos[0] == goal[0] && current_node->pos[1] == goal[1]) {
+            return current_node;
+        }
+        // Remove the current node from the open list and add it to the closed list
+        if (current_node == open_list) {
+            open_list = current_node->next;
+        } else {
+            temp_node = open_list;
+            while (temp_node->next != current_node) {
+                temp_node = temp_node->next;
+            }
+            temp_node->next = current_node->next;
+        }
+        current_node->next = closed_list;
+        closed_list = current_node;
+        // Generate the child nodes and evaluate them
+        for (int i=-1; i<=1; i++) {
+            for (int j=-1; j<=1; j++) {
+                if (i == 0 && j == 0) {
+                    continue;
+                }
+                float child_pos[2] = {current_node->pos[0]+i*0.1, current_node->pos[1]+j*0.1};
+                if (child_pos[0] < 0 || child_pos[0] > FIELD_WIDTH || child_pos[1] < 0 || child_pos[1] > FIELD_LENGTH) {
+                    continue;
+                }
+                int x = (int)(child_pos[0]*10);
+                int y = (int)(child_pos[1]*10);
+                if (obstacle_map[x][y] == 1) {
+                    continue;
+                }
+                float child_g = current_node->g + sqrt(pow(i, 2) + pow(j, 2))*0.1;
+                float child_h = heuristic(child_pos, goal);
+                float child_f = child_g + child_h;
+                struct node* child_node = (struct node*)malloc(sizeof(struct node));
+                child_node->pos[0] = child_pos[0];
+                child_node->pos[1] = child_pos[1];
+                child_node->g = child_g;
+                child_node->h = child_h;
+                child_node->f = child_f;
+                child_node->parent = current_node;
+                temp_node = closed_list;
+                while (temp_node != NULL) {
+                    if (temp_node->pos[0] == child_node->pos[0] && temp_node->pos[1] == child_node->pos[1]) {
+                        break;
+                    }
+                    temp_node = temp_node->next;
+                }
+                if (temp_node != NULL) {
+                    continue;
+                }
+                temp_node = open_list;
+                while (temp_node != NULL) {
+                    if (temp_node->pos[0] == child_node->pos[0] && temp_node->pos[1] == child_node->pos[1]) {
+                        break;
+                    }
+                    temp_node = temp_node->next;
+                }
+                if (temp_node == NULL) {
+                    child_node->next = open_list;
+                    open_list = child_node;
+                } else if (child_node->f < temp_node->f) {
+                    temp_node->g = child_node->g;
+                    temp_node->h = child_node->h;
+                    temp_node->f = child_node->f;
+                    temp_node->parent = child_node->parent;
+                }
+            }
+        }
+    }
+    // If the goal is not reachable, return NULL
+    return NULL;
+}
+
+// Define the robot's main function
+int main() {
+    // Use the A* algorithm to generate the optimal path to the goal
+    struct node* goal_node = A_star(start, goal, obstacle_map);
+    if (goal_node == NULL) {
+        printf("Goal is not reachable!\n");
+        return -1;
+    }
+    // Follow the optimal path to the goal
+    while (goal_node->parent != NULL) {
+        // Check for obstacles using the robot's sensor
+        for (int i=0; i<num_obstacles; i++) {
+            float dx = obstacles[i][0] - pos[0];
+            float dy = obstacles[i][1] - pos[1];
+            float distance = sqrt(pow(dx, 2) + pow(dy, 2));
+            if (distance < 0.3) { // Obstacle detected within 0.3 meters
+                // Add the obstacle to the obstacle map
+                int x = (int)(obstacles[i][0]*10);
+                int y = (int)(obstacles[i][1]*10);
+                obstacle_map[x][y] = 1;
+                // Use A* to generate a new optimal path
+                goal_node = A_star(pos, goal, obstacle_map);
+                if (goal_node == NULL) {
+                    printf("Goal is not reachable!\n");
+                    return -1;
+                }
+                break;
+            }
+        }
+        // Follow the next step on the optimal path
+        float dx = goal_node->parent->pos[0] - pos[0];
+        float dy = goal_node->parent->pos[1] - pos[1];
+        float distance = sqrt(pow(dx, 2) + pow(dy, 2));
+        float speed = fmin(MAX_SPEED, distance);
+        float turning_angle = atan2(dy, dx) - pos[2];
+        if (turning_angle > M_PI) {
+            turning_angle -= 2*M_PI;
+        } else if (turning_angle < -M_PI) {
+            turning_angle += 2*M_PI;
+        }
+        turning_angle = fmax(-MAX_TURNING_ANGLE*M_PI/180, fmin(MAX_TURNING_ANGLE*M_PI/180, turning_angle));
+        pos[0] += speed*cos(pos[2]+turning_angle/2);
+        pos[1] += speed*sin(pos[2]+turning_angle/2);
+        pos[2] += turning_angle;
+        if (pos[2] > M_PI) {
+            pos[2] -= 2*M_PI;
+        } else if (pos[2] < -M_PI) {
+            pos[2] += 2*M_PI;
+        }
+        // Print the robot's current position
+        printf("Position: (%.2f, %.2f, %.2f)\n", pos[0], pos[1], pos[2]);
+        // Move the goal node to the next step on the optimal path
+        goal_node = goal_node->parent;
+    }
+    // Print the final position and exit
+    printf("Position: (%.2f, %.2f, %.2f)\n", pos[0], pos[1], pos[2]);
+    return 0;
+}
