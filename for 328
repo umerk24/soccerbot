@@ -1,0 +1,53 @@
+#include <avr/io.h>
+#include <avr/interrupt.h>
+#include <stdint.h>
+
+#define SS_PIN PB2
+
+volatile uint8_t received_byte = 0;
+
+void spi_init_slave(void)
+{
+    /* Set MISO as output */
+    DDRB |= (1 << DDB3);
+
+    /* Enable SPI, Slave mode */
+    SPCR = (1 << SPE);
+
+    /* Enable SPI interrupt */
+    SPCR |= (1 << SPIE);
+}
+
+ISR(SPI_STC_vect)
+{
+    received_byte = SPDR;
+
+    /* Echo back received byte */
+    SPDR = received_byte;
+}
+
+int main(void)
+{
+    spi_init_slave();
+
+    /* Set SS pin as input with pull-up */
+    DDRB &= ~(1 << SS_PIN);
+    PORTB |= (1 << SS_PIN);
+
+    while(1)
+    {
+        /* Wait for SS pin to go low */
+        while(PINB & (1 << SS_PIN));
+
+        /* Wait for received byte */
+        while(!received_byte);
+
+        /* Reset received byte */
+        received_byte = 0;
+
+        /* Wait for transmission to complete */
+        while(!(SPSR & (1 << SPIF)));
+    }
+
+    return 0;
+}
