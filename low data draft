@@ -1,0 +1,201 @@
+#include <avr/io.h>
+#include <avr/interrupt.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <math.h>
+
+// Define the playing field dimensions and obstacles
+#define FIELD_WIDTH 3.0
+#define FIELD_LENGTH 4.0
+#define MAX_OBSTACLES 10
+uint8_t obstacles[MAX_OBSTACLES][2];
+uint8_t num_obstacles = 0;
+
+// Define the robot's motion model
+#define MAX_SPEED 0.5
+#define MAX_TURNING_ANGLE 45.0
+volatile float pos[3] = {0.5, 0.5, 0.0}; // Make the position array volatile to ensure it is updated correctly in the interrupt
+
+// Define the A* algorithm inputs and outputs
+struct node {
+    uint8_t pos[2];
+    float g;
+    float h;
+    float f;
+    struct node* parent;
+};
+uint8_t start[2] = {5, 5};
+uint8_t goal[2] = {35, 15};
+uint8_t obstacle_map[(int)(FIELD_WIDTH*10)][(int)(FIELD_LENGTH*10)] = {0};
+
+// Define the A* algorithm heuristic function
+float heuristic(uint8_t node[], uint8_t goal[]) {
+    return sqrt(pow(node[0]-goal[0], 2) + pow(node[1]-goal[1], 2));
+}
+
+// Define the A* algorithm search function
+struct node* A_star(uint8_t start[], uint8_t goal[], uint8_t obstacle_map[][int](FIELD_LENGTH*10)) {
+    // Initialize the open and closed lists
+    struct node* open_list = NULL;
+    struct node* closed_list = NULL;
+    // Add the starting node to the open list
+    struct node* start_node = (struct node*)malloc(sizeof(struct node));
+    start_node->pos[0] = start[0];
+    start_node->pos[1] = start[1];
+    start_node->g = 0;
+    start_node->h = heuristic(start, goal);
+    start_node->f = start_node->g + start_node->h;
+    start_node->parent = NULL;
+    open_list = start_node;
+    // Loop until the goal is reached or the open list is empty
+    while (open_list != NULL) {
+        // Get the node with the lowest f score from the open list
+        struct node* current_node = open_list;
+        struct node* temp_node = open_list->next;
+        while (temp_node != NULL) {
+            if (temp_node->f < current_node->f) {
+                current_node = temp_node;
+            }
+            temp_node = temp_node->next;
+        }
+        // If the current node is the goal, return the path
+        if (current_node->pos[0] == goal[0] && current_node->pos[1] == goal[1]) {
+            return current_node;
+        }
+        // Remove the current node from the open list and add it to the closed list
+        if (current_node == open_list) {
+            open_list = current_node->next;
+        } else {
+            temp_node = open_list;
+            while (temp_node->next != current_node) {
+                temp_node = temp_node->next;
+            }
+            temp_node->next = current_node->next;
+        }
+        current_node->next = closed_list;
+        closed_list = current_node;
+        // Generate the child nodes and evaluate them
+        for (int i=-1; i<=1; i++) {
+            for (int j=-1; j<=1; j++) {
+                if (i == 0 && j == 0) {
+                    continue;
+                }
+                uint8_t child_pos[2] = {current_node->pos[0]+i, current_node->pos[1]+j};
+                if (child_pos[0] > 39 || child_pos[1] > 19) {
+                    continue;
+                }
+                int x = child_pos[0]*10;
+                int y = child_pos[1]*10;
+                if (obstacle_map[x][y] == 1) {
+                    continue;
+                }
+                float child_g = current_node->g + sqrt(pow(i, 2) + pow(j, 2));
+                float child_h = heuristic(child_pos, goal);
+                float child_f = child_g + child_h;
+                // Check if the child node is already in the closed list
+                temp_node = closed_list;
+                while (temp_node != NULL) {
+                    if (temp_node->pos[0] == child_pos[0] && temp_node->pos[1] == child_pos[1]) {
+                        break;
+                    }
+                    temp_node = temp_node->next;
+                }
+                if (temp_node != NULL && child_f >= temp_node->f) {
+                    continue;
+                }
+                // Check if the child node is already in the open list
+                temp_node = open_list;
+                while (temp_node != NULL) {
+                    if (temp_node->pos[0] == child_pos[0] && temp_node->pos[1] == child_pos[1]) {
+                        break;
+                    }
+                    temp_node = temp_node->next;
+                }
+                if (temp_node != NULL && child_f >= temp_node->f) {
+                    continue;
+                }
+                // Add the child node to the open list
+                struct node* child_node = (struct node*)malloc(sizeof(struct node));
+                child_node->pos[0] = child_pos[0];
+                child_node->pos[1] = child_pos[1];
+                child_node->g = child_g;
+                child_node->h = child_h;
+                child_node->f = child_f;
+                child_node->parent = current_node;
+                child_node->next = open_list;
+                open_list = child_node;
+            }
+        }
+    }
+    // If the open list is empty, no path was found
+    return NULL;
+}
+
+// Define the interrupt service routine for updating the robot's position
+ISR(TIMER1_COMPA_vect) {
+    // Update the robot's position based on its speed and steering angle
+    float speed = MAX_SPEED;
+    float steering_angle = pos[2];
+    if (steering_angle > MAX_TURNING_ANGLE) {
+        steering_angle = MAX_TURNING_ANGLE;
+    } else if (steering_angle < -MAX_TURNING_ANGLE) {
+        steering_angle = -MAX_TURNING_ANGLE;
+    }
+    pos[0] += speed*cos(steering_angle);
+    pos[1] += speed*sin(steering_angle);
+}
+
+// Define the interrupt service routine for detecting obstacles
+ISR(INT0_vect) {
+    // Update the obstacle map based on the sensor data
+    uint8_t x = (int)(pos[0]*10);
+    uint8_t y = (int)(pos[1]*10);
+    obstacle_map[x][y] = 1;
+}
+
+// Define the main function
+int main(void) {
+    // Initialize the obstacle positions
+    obstacles[0][0] = 2;
+    obstacles[0][1] = 2;
+    obstacles[1][0] = 3;
+    obstacles[1][1] = 4;
+    num_obstacles = 2;
+    // Initialize the obstacle map
+    for (int i=0; i<num_obstacles; i++) {
+        uint8_t x = obstacles[i][0]*10;
+        uint8_t y = obstacles[i][1]*10;
+        obstacle_map[x][y] = 1;
+    }
+    // Initialize the hardware interrupts
+    DDRD &= ~(1 << PD2); // configure PD2 (INT0) as input
+    PORTD |= (1 << PD2); // enable pull-up resistor on PD2
+    EICRA |= (1 << ISC00); // set INT0 to trigger on any logical change
+    EIMSK |= (1 << INT0); // enable INT0 interrupt
+    TIMSK1 |= (1 << OCIE1A); // enable timer1 compare match A interrupt
+    TCCR1B |= (1 << CS11) | (1 << WGM12); // set timer1 prescaler to 8 and set CTC mode
+    OCR1A = 15624; // set timer1 compare match value to generate 10 Hz interrupt
+    sei(); // enable interrupts
+    // Run the A* algorithm to find the path
+    struct node* path_node = A_star(start, goal, obstacle_map);
+    // Drive the robot along the path
+    while (path_node != NULL) {
+        // Calculate the steering angle to the next waypoint
+        uint8_t waypoint[2] = {path_node->pos[0], path_node->pos[1]};
+        float dx = waypoint[0] - pos[0]*10.0;
+        float dy = waypoint[1] - pos[1]*10.0;
+        float heading = atan2(dy, dx);
+        float steering_angle = heading - pos[2];
+        pos[2] = heading;
+        // Print the robot's position and steering angle
+        printf("x: %f, y: %f, heading: %f, steering angle: %f\n", pos[0], pos[1], pos[2], steering_angle);
+        // Move to the next waypoint
+        path_node = path_node->parent;
+    }
+    // Free the memory used by the A* algorithm
+    while (open_list != NULL) {
+        struct node* temp_node = open_list;
+        open_list = open_list->next;
+        free(temp_node);
+    }
+    while (closed_list != NULL)
